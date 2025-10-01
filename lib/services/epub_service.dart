@@ -1,8 +1,11 @@
 import 'dart:io';
+import 'package:logger/logger.dart';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 
 class EpubService {
+  static final Logger logger = Logger();
+
   static Future<String> extractEpubContent(File epubFile) async {
     try {
       // For simplicity, we'll extract basic text content
@@ -21,7 +24,7 @@ class EpubService {
       // Extract basic text (simplified - in reality you'd parse OPF, NCX files)
       return _extractTextFromEpub(copiedEpub);
     } catch (e) {
-      print('Error extracting EPUB: $e');
+      logger.e('Error extracting EPUB: $e');
       return 'Unable to read EPUB content';
     }
   }

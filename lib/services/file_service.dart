@@ -3,11 +3,14 @@ import 'dart:io';
 import 'package:path/path.dart' as path;
 import 'package:path_provider/path_provider.dart';
 import '../models/book.dart';
+import 'package:logger/logger.dart';
 
 class FileService {
+  static final Logger _logger = Logger();
+
   static Future<FilePickerResult?> pickFile() async {
     try {
-      print('Opening file picker...');
+      _logger.i('Opening file picker...');
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['epub', 'pdf', 'doc', 'docx'],
@@ -17,25 +20,25 @@ class FileService {
       
       if (result != null) {
         final file = result.files.single;
-        print('File picked: ${file.name}');
-        print('File size: ${file.size}');
-        print('Has bytes: ${file.bytes != null}');
-        print('File path: ${file.path}');
+        _logger.i('File picked: ${file.name}');
+        _logger.i('File size: ${file.size}');
+        _logger.i('Has bytes: ${file.bytes != null}');
+        _logger.i('File path: ${file.path}');
       } else {
-        print('No file selected');
+        _logger.w('No file selected');
       }
       
       return result;
     } catch (e) {
-      print('Error picking file: $e');
+      _logger.e('Error picking file: $e');
       return null;
     }
   }
 
   static Future<Book?> processFile(PlatformFile file) async {
     try {
-      print('Processing file: ${file.name}');
-      print('File details - bytes: ${file.bytes != null}, path: ${file.path}');
+      _logger.i('Processing file: ${file.name}');
+      _logger.d('File details - bytes: ${file.bytes != null}, path: ${file.path}');
       
       final fileExtension = path.extension(file.name).toLowerCase();
       final fileName = path.basenameWithoutExtension(file.name);
@@ -49,7 +52,7 @@ class FileService {
       } else if (fileExtension == '.docx' || fileExtension == '.doc') {
         format = BookFormat.docx;
       } else {
-        print('Unsupported file format: $fileExtension');
+        _logger.w('Unsupported file format: $fileExtension');
         return null;
       }
 
@@ -61,31 +64,31 @@ class FileService {
         final appDir = await getApplicationDocumentsDirectory();
         savedFile = File('${appDir.path}/${file.name}');
         await savedFile.writeAsBytes(file.bytes!);
-        print('File saved from bytes to: ${savedFile.path}');
+        _logger.i('File saved from bytes to: ${savedFile.path}');
       } else if (file.path != null) {
         // Copy from original path
         final appDir = await getApplicationDocumentsDirectory();
         savedFile = File('${appDir.path}/${file.name}');
         final originalFile = File(file.path!);
         await originalFile.copy(savedFile.path);
-        print('File copied from path to: ${savedFile.path}');
+        _logger.i('File copied from path to: ${savedFile.path}');
       } else {
-        print('No file data available - both bytes and path are null');
+        _logger.e('No file data available - both bytes and path are null');
         return null;
       }
 
       // Verify file was saved
       if (!await savedFile.exists()) {
-        print('Failed to save file');
+        _logger.e('Failed to save file');
         return null;
       }
 
       final fileSize = await savedFile.length();
-      print('Saved file size: $fileSize bytes');
+      _logger.d('Saved file size: $fileSize bytes');
 
       // Extract basic info
       final totalPages = await _estimateTotalPages(format, savedFile);
-      print('Estimated total pages: $totalPages');
+      _logger.d('Estimated total pages: $totalPages');
 
       return Book(
         title: fileName,
@@ -97,7 +100,7 @@ class FileService {
         lastRead: DateTime.now(),
       );
     } catch (e) {
-      print('Error processing file: $e');
+      _logger.e('Error processing file: $e');
       return null;
     }
   }
@@ -115,15 +118,14 @@ class FileService {
         
         case BookFormat.docx:
           try {
-          
             return (10000 / 2000).ceil(); // Estimate based on average words per page
           } catch (e) {
-            print('Error reading DOCX: $e');
+            _logger.e('Error reading DOCX: $e');
             return 50;
           }
       }
     } catch (e) {
-      print('Error estimating pages: $e');
+      _logger.e('Error estimating pages: $e');
       return 100; // Default fallback
     }
   }

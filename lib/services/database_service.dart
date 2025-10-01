@@ -9,11 +9,14 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 
 // For non-web platforms, import FFI factory
 import 'package:sqflite_common_ffi/sqflite_ffi.dart' as ffi;
+import 'package:logger/logger.dart';
 
 class DatabaseService {
   static final DatabaseService _instance = DatabaseService._internal();
   factory DatabaseService() => _instance;
   DatabaseService._internal();
+
+  static final Logger _logger = Logger();
 
   static Database? _database;
   bool _isInitialized = false;
@@ -33,7 +36,7 @@ class DatabaseService {
         _isInitialized = true;
       } catch (e) {
         // If FFI fails, fall back to default factory (for mobile)
-        print('FFI initialization failed, using default factory: $e');
+        _logger.w('FFI initialization failed, using default factory: $e');
       }
     }
     
@@ -289,6 +292,7 @@ Future<List<Annotation>> getAnnotations(int bookId) async {
       await _database!.close();
       _database = null;
       _isInitialized = false;
+      _logger.i('Database connection closed.');
     }
   }
 }

@@ -4,6 +4,7 @@ import '../services/database_service.dart';
 import '../models/book.dart';
 import '../widgets/book_card.dart';
 import 'reader_screen.dart';
+import 'package:logger/logger.dart';
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
@@ -14,6 +15,7 @@ class LibraryScreen extends StatefulWidget {
 
 class _LibraryScreenState extends State<LibraryScreen> {
   final DatabaseService _databaseService = DatabaseService();
+  final Logger _logger = Logger();
   List<Book> _books = [];
   List<Book> _filteredBooks = [];
   bool _isLoading = true;
@@ -24,20 +26,20 @@ class _LibraryScreenState extends State<LibraryScreen> {
   @override
   void initState() {
     super.initState();
-    print('LibraryScreen initState called');
+    _logger.d('LibraryScreen initState called');
     _loadBooks();
   }
 
   Future<void> _loadBooks() async {
     try {
-      print('Loading books from database...');
+      _logger.i('Loading books from database...');
       setState(() {
         _isLoading = true;
         _errorMessage = '';
       });
       
       final books = await _databaseService.getBooks();
-      print('Loaded ${books.length} books');
+      _logger.i('Loaded ${books.length} books');
       
       setState(() {
         _books = books;
@@ -45,7 +47,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         _isLoading = false;
       });
     } catch (e) {
-      print('Error loading books: $e');
+      _logger.e('Error loading books: $e');
       setState(() {
         _isLoading = false;
         _errorMessage = 'Error loading books: $e';
@@ -82,7 +84,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    print('Building LibraryScreen, isLoading: $_isLoading, books: ${_books.length}');
+    _logger.d('Building LibraryScreen, isLoading: $_isLoading, books: ${_books.length}');
     
     return Scaffold(
       appBar: AppBar(
@@ -201,24 +203,24 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   Future<void> _addBook() async {
     try {
-      print('Adding book...');
+      _logger.i('Adding book...');
       final result = await FileService.pickFile();
       if (result != null && result.files.single.bytes != null) {
-        print('File selected, processing...');
+        _logger.i('File selected, processing...');
         final book = await FileService.processFile(result.files.single);
         if (book != null) {
-          print('Book processed, inserting into database...');
+          _logger.i('Book processed, inserting into database...');
           await _databaseService.insertBook(book);
           await _loadBooks();
-          print('Book added successfully');
+          _logger.i('Book added successfully');
         } else {
-          print('Failed to process book');
+          _logger.w('Failed to process book');
         }
       } else {
-        print('No file selected or file bytes are null');
+        _logger.w('No file selected or file bytes are null');
       }
     } catch (e) {
-      print('Error adding book: $e');
+      _logger.e('Error adding book: $e');
       setState(() {
         _errorMessage = 'Error adding book: $e';
       });
@@ -226,14 +228,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   void _openBook(Book book) {
-    print('Opening book: ${book.title}');
+    _logger.i('Opening book: ${book.title}');
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => ReaderScreen(book: book),
       ),
     ).then((_) {
-      print('Returned from reader screen, reloading books...');
+      _logger.i('Returned from reader screen, reloading books...');
       _loadBooks();
     });
   }

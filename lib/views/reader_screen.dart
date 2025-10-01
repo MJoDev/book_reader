@@ -1,13 +1,19 @@
 import 'package:flutter/material.dart';
-import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'dart:io';
-import '../models/book.dart';
-import '../services/database_service.dart';
-import '../services/epub_service.dart';
+import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
+import 'package:book_reader/models/book.dart';
+import 'package:book_reader/services/database_service.dart';
+import 'package:book_reader/services/epub_service.dart';
 import 'package:book_reader/widgets/annotation_dialog.dart';
 import 'package:book_reader/widgets/book_mark_dialog.dart';
 import 'package:book_reader/models/annotation.dart' as book_reader_annotation;
 import 'package:book_reader/models/book_mark.dart';
+import 'reader_controls.dart';
+import 'readers/pdf_reader.dart';
+import 'readers/epub_reader.dart';
+import 'readers/docx_reader.dart';
 
 class ReaderScreen extends StatefulWidget {
   final Book book;
@@ -25,16 +31,19 @@ class _ReaderScreenState extends State<ReaderScreen> {
   String _epubContent = '';
   bool _isLoadingEpub = false;
   final PageController _pageController = PageController();
-  late PdfViewerController _pdfViewerController;
+  late dynamic _pdfViewerController;
   List<Bookmark> _bookmarks = [];
   List<book_reader_annotation.Annotation> _annotations = [];
   bool _isLoading = true;
+
+  // Add focus node for keyboard events
+  final FocusNode _focusNode = FocusNode();
 
   @override
   void initState() {
     super.initState();
     _currentBook = widget.book;
-    _pdfViewerController = PdfViewerController();
+  _pdfViewerController = _currentBook.format == BookFormat.pdf ? PdfViewerController() : null;
     _loadData();
   }
 
@@ -86,9 +95,12 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   @override
   void dispose() {
-    _saveProgress();
+    // _saveProgress(); // REMOVE this line, don't save progress in dispose
     _pageController.dispose();
-    _pdfViewerController.dispose();
+    if (_pdfViewerController != null) {
+      _pdfViewerController.dispose();
+    }
+    _focusNode.dispose();
     super.dispose();
   }
 
@@ -219,75 +231,28 @@ class _ReaderScreenState extends State<ReaderScreen> {
     _updateProgress(pageNumber);
   }
 
-  Widget _buildPdfReader() {
-    return SfPdfViewer.file(
-      File(_currentBook.filePath),
-      controller: _pdfViewerController,
-      initialPageNumber: _currentBook.currentPage,
-      onPageChanged: (PdfPageChangedDetails details) {
-        _updateProgress(details.newPageNumber);
-      },
-      // Enable scrolling
-      scrollDirection: PdfScrollDirection.vertical,
-      canShowScrollHead: true,
-      canShowScrollStatus: true,
-    );
-  }
-
-  Widget _buildEpubReader() {
-    if (_isLoadingEpub) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
-    return PageView.builder(
-      controller: _pageController,
-      itemCount: _currentBook.totalPages,
-      onPageChanged: _updateEpubProgress,
-      itemBuilder: (context, pageIndex) {
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(16.0),
-          child: Text(
-            _epubContent,
-            style: const TextStyle(fontSize: 16, height: 1.5),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildDocxReader() {
-    return const Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.description, size: 64, color: Colors.grey),
-          SizedBox(height: 16),
-          Text(
-            'DOCX Reader',
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-          ),
-          SizedBox(height: 8),
-          Text(
-            'To be implemented with docx_to_text package',
-            style: TextStyle(color: Colors.grey),
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildReader() {
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
-
     switch (_currentBook.format) {
       case BookFormat.pdf:
-        return _buildPdfReader();
+        return PdfReader(
+          currentBook: _currentBook,
+          pdfViewerController: _pdfViewerController,
+          onPageChanged: _updateProgress,
+        );
       case BookFormat.epub:
-        return _buildEpubReader();
+        return EpubReader(
+          currentBook: _currentBook,
+          pageController: _pageController,
+          epubContent: _epubContent,
+          isLoadingEpub: _isLoadingEpub,
+          onPageChanged: _updateEpubProgress,
+        );
       case BookFormat.docx:
-        return _buildDocxReader();
+        return const DocxReader();
     }
   }
 
@@ -297,92 +262,87 @@ class _ReaderScreenState extends State<ReaderScreen> {
     });
   }
 
+  // Platform check helpers
+  bool get _isWindows {
+    return !kIsWeb && Platform.isWindows;
+  }
+
+  bool get _isMobile {
+    return !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+  }
+
   @override
   Widget build(BuildContext context) {
+    Widget content = Stack(
+      children: [
+        _buildReader(),
+        if (_showControls)
+          SafeArea(
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black.withValues(alpha: 0.7),
+                    Colors.transparent,
+                    Colors.transparent,
+                    Colors.black.withValues(alpha: 0.7),
+                  ],
+                ),
+              ),
+              child: ReaderControls(
+                currentBook: _currentBook,
+                onBack: () async {
+                  await _saveProgress();
+                  Navigator.pop(context);
+                },
+                onAddBookmark: _addBookmark,
+                onShowBookmarks: _showBookmarksDialog,
+                onAddAnnotation: _showAddAnnotationDialog,
+                onShowAnnotations: _showAnnotationsDialog,
+              ),
+            ),
+          ),
+      ],
+    );
+
+    // Windows: Use RawKeyboardListener for ESC key
+    if (_isWindows) {
+      return Scaffold(
+        body: KeyboardListener(
+          focusNode: _focusNode,
+          autofocus: true,
+          onKeyEvent: (KeyEvent event) {
+            if (event is KeyDownEvent &&
+                event.logicalKey == LogicalKeyboardKey.escape) {
+              _toggleControls();
+            }
+          },
+          child: GestureDetector(
+            // Single tap does nothing on Windows
+            behavior: HitTestBehavior.translucent,
+            child: content,
+          ),
+        ),
+      );
+    }
+
+    // Mobile: Use double tap to toggle controls
+    if (_isMobile) {
+      return Scaffold(
+        body: GestureDetector(
+          onDoubleTap: _toggleControls,
+          child: content,
+        ),
+      );
+    }
+
+    // Fallback: Single tap toggles controls
     return Scaffold(
       body: GestureDetector(
         onTap: _toggleControls,
-        child: Stack(
-          children: [
-            _buildReader(),
-            if (_showControls)
-              SafeArea(
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.black.withOpacity(0.7),
-                        Colors.transparent,
-                        Colors.transparent,
-                        Colors.black.withOpacity(0.7),
-                      ],
-                    ),
-                  ),
-                  child: Column(
-                    children: [
-                      AppBar(
-                        backgroundColor: Colors.transparent,
-                        elevation: 0,
-                        leading: IconButton(
-                          icon: const Icon(Icons.arrow_back, color: Colors.white),
-                          onPressed: () {
-                            Navigator.pop(context);
-                          },
-                        ),
-                        title: Text(
-                          _currentBook.title,
-                          style: const TextStyle(color: Colors.white),
-                        ),
-                        actions: [
-                          IconButton(
-                            icon: const Icon(Icons.bookmark_border, color: Colors.white),
-                            onPressed: _addBookmark,
-                            tooltip: 'Add Bookmark',
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.bookmark, color: Colors.white),
-                            onPressed: _showBookmarksDialog,
-                            tooltip: 'View Bookmarks',
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.note_add, color: Colors.white),
-                            onPressed: _showAddAnnotationDialog,
-                            tooltip: 'Add Annotation',
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.notes, color: Colors.white),
-                            onPressed: _showAnnotationsDialog,
-                            tooltip: 'View Annotations',
-                          ),
-                        ],
-                      ),
-                      const Spacer(),
-                      Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Row(
-                          children: [
-                            Text(
-                              _currentBook.format == BookFormat.epub
-                                  ? 'Page ${_currentBook.currentPage + 1} of ${_currentBook.totalPages}'
-                                  : 'Page ${_currentBook.currentPage} of ${_currentBook.totalPages}',
-                              style: const TextStyle(color: Colors.white),
-                            ),
-                            const Spacer(),
-                            Text(
-                              '${(_currentBook.progress * 100).toStringAsFixed(1)}%',
-                              style: const TextStyle(color: Colors.white),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-          ],
-        ),
+        child: content,
       ),
     );
   }
