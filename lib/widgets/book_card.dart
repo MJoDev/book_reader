@@ -2,7 +2,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:logger/logger.dart';
 import '../models/book.dart';
-import 'package:pdf_render/pdf_render_widgets.dart';
+// import 'package:pdf_render/pdf_render_widgets.dart';
+import 'package:pdf_render/pdf_render.dart';
 
 class BookCard extends StatelessWidget {
   final Book book;
@@ -18,17 +19,24 @@ class BookCard extends StatelessWidget {
   Widget _buildBookPreview() {
     switch (book.format) {
       case BookFormat.pdf:
-        // Check if file exists before trying to render
         final file = File(book.filePath);
         logger.i('Trying to preview PDF at: ${book.filePath}');
         if (!file.existsSync()) {
           return const Center(child: Text('PDF file not found'));
         }
-        return PdfDocumentLoader.openFile(
-          book.filePath,
-          pageNumber: 1,
-          pageBuilder: (context, textureBuilder, pageSize) => textureBuilder(),
-          onError: (error) => const Center(child: Text('Failed to load PDF')),
+        return FutureBuilder<Widget>(
+          future: _buildPdfThumbnail(book.filePath),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            } else if (snapshot.hasError) {
+              return const Center(child: Text('Failed to load PDF thumbnail'));
+            } else if (snapshot.hasData) {
+              return snapshot.data!;
+            } else {
+              return const Center(child: Text('No preview'));
+            }
+          },
         );
       case BookFormat.epub:
         return Container(
@@ -50,6 +58,28 @@ class BookCard extends StatelessWidget {
             ),
           ),
         );
+    }
+  }
+
+  Future<Widget> _buildPdfThumbnail(String filePath) async {
+    try {
+      final doc = await PdfDocument.openFile(filePath);
+      final page = await doc.getPage(1);
+      final pageImage = await page.render(
+        width: 120, // thumbnail width
+        height: 160, // thumbnail height
+      );
+  // Cleanup: page.close() and doc.close() are not defined in this version.
+  // Add cleanup here if your pdf_render version supports it.
+      return Image.memory(
+        pageImage.pixels,
+        fit: BoxFit.cover,
+        width: double.infinity,
+        height: double.infinity,
+      );
+    } catch (e) {
+      logger.e('Failed to render PDF thumbnail: $e');
+      return const Center(child: Text('Failed to load PDF'));
     }
   }
 
